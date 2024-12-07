@@ -1,29 +1,49 @@
-import { FiniteAutomaton } from '../types/automata';
+import { FiniteAutomaton, Transition } from '../types/automata';
 import { RegExp } from '../types/regex';
 
-export function convertAutomatonToRegex(automaton: FiniteAutomaton): RegExp {
-    if (automaton.transitions.length === 0) {
-        return { pattern: 'ε' };
-    }
+function eliminateState(fa: FiniteAutomaton, stateId: string): FiniteAutomaton {
+    const transitions: Transition[] = fa.transitions.filter(
+        (t) => t.from !== stateId && t.to !== stateId
+    );
+    const loop = fa.transitions.find(
+        (t) => t.from === stateId && t.to === stateId
+    );
+    const loopPattern = loop ? `(${loop.symbol})*` : '';
 
-    const patterns = automaton.transitions.map((transition) => {
-        const fromState = automaton.states.find(
-            (s) => s.id === transition.from
-        );
-        const toState = automaton.states.find((s) => s.id === transition.to);
+    const newTransitions: Transition[] = [];
 
-        if (fromState?.isInitial && toState?.isAccepting) {
-            return transition.symbol;
-        } else if (fromState?.isInitial) {
-            return `${transition.symbol}${toState?.id}`;
-        } else if (toState?.isAccepting) {
-            return `${fromState?.id}${transition.symbol}`;
-        } else {
-            return `${fromState?.id}${transition.symbol}${toState?.id}`;
+    fa.transitions.forEach((t1) => {
+        if (t1.to === stateId) {
+            fa.transitions.forEach((t2) => {
+                if (t2.from === stateId) {
+                    newTransitions.push({
+                        from: t1.from,
+                        to: t2.to,
+                        symbol: `${t1.symbol}${loopPattern}${t2.symbol}`,
+                    });
+                }
+            });
         }
     });
 
     return {
-        pattern: patterns.join('|'),
+        ...fa,
+        transitions: [...transitions, ...newTransitions],
     };
+}
+
+export function convertAutomatonToRegex(automaton: FiniteAutomaton): RegExp {
+    let fa = { ...automaton };
+
+    while (fa.states.length > 2) {
+        const removableState = fa.states.find(
+            (s) => !s.isInitial && !s.isAccepting
+        );
+        if (!removableState) break;
+        fa = eliminateState(fa, removableState.id);
+    }
+
+    const regexPattern = fa.transitions.map((t) => t.symbol).join('|');
+
+    return { pattern: regexPattern };
 }
